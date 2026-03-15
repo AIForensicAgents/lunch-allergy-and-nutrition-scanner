@@ -1,0 +1,792 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Lunch Allergy & Nutrition Scanner</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/alpinejs@3.13.3/dist/cdn.min.js" defer></script>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+* { font-family: 'Nunito', sans-serif; }
+[x-cloak] { display: none !important; }
+.scan-pulse { animation: pulse-ring 2s ease-out infinite; }
+@keyframes pulse-ring {
+  0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.5); }
+  70% { box-shadow: 0 0 0 20px rgba(59, 130, 246, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+}
+.fade-in { animation: fadeIn 0.3s ease-in; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+.allergen-badge { min-width: 44px; min-height: 44px; }
+.touch-target { min-height: 44px; min-width: 44px; }
+.gradient-header { background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%); }
+.card-shadow { box-shadow: 0 2px 15px rgba(0,0,0,0.08); }
+.risk-high { background: linear-gradient(135deg, #fee2e2, #fecaca); border-left: 4px solid #ef4444; }
+.risk-medium { background: linear-gradient(135deg, #fef3c7, #fde68a); border-left: 4px solid #f59e0b; }
+.risk-low { background: linear-gradient(135deg, #d1fae5, #a7f3d0); border-left: 4px solid #10b981; }
+.safe { background: linear-gradient(135deg, #dbeafe, #bfdbfe); border-left: 4px solid #3b82f6; }
+input[type="file"] { display: none; }
+.spinner { border: 3px solid #e5e7eb; border-top: 3px solid #3b82f6; border-radius: 50%; width: 40px; height: 40px; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.bottom-nav { padding-bottom: env(safe-area-inset-bottom, 8px); }
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+</style>
+</head>
+<body class="bg-gray-50 min-h-screen" x-data="app()" x-init="init()">
+
+<!-- Header -->
+<header class="gradient-header text-white px-4 py-3 sticky top-0 z-50 shadow-lg">
+  <div class="max-w-lg mx-auto flex items-center justify-between">
+    <div class="flex items-center gap-2">
+      <span class="text-2xl">🍱</span>
+      <div>
+        <h1 class="text-lg font-extrabold leading-tight">Lunch Scanner</h1>
+        <p class="text-xs text-blue-100 font-semibold">Allergy & Nutrition</p>
+      </div>
+    </div>
+    <button @click="currentTab = 'profile'" class="touch-target flex items-center justify-center w-10 h-10 bg-white/20 rounded-full">
+      <span class="text-xl">👤</span>
+    </button>
+  </div>
+</header>
+
+<!-- Disclaimer Banner -->
+<div x-show="showDisclaimer" x-cloak class="bg-amber-50 border-b border-amber-200 px-4 py-2 text-xs text-amber-800 max-w-lg mx-auto">
+  <div class="flex items-start gap-2">
+    <span>⚠️</span>
+    <p class="flex-1">This tool assists with allergen identification but is <strong>not a medical device</strong>. Always verify with ingredient labels and medical professionals. <button @click="showDisclaimer=false" class="underline font-bold ml-1">Dismiss</button></p>
+  </div>
+</div>
+
+<!-- Main Content -->
+<main class="max-w-lg mx-auto pb-24 px-4">
+
+  <!-- SCAN TAB -->
+  <div x-show="currentTab === 'scan'" x-cloak class="fade-in">
+    
+    <!-- Onboarding hint -->
+    <div x-show="!hasScanned && scanResults.length === 0" class="mt-6 text-center">
+      <div class="bg-white rounded-2xl card-shadow p-6 mb-4">
+        <div class="text-6xl mb-3">📸</div>
+        <h2 class="text-xl font-extrabold text-gray-800 mb-2">Scan Your Lunch!</h2>
+        <p class="text-gray-500 text-sm mb-4">Take a photo of a cafeteria tray, food label, or menu to detect allergens and get nutrition info.</p>
+        
+        <div class="grid grid-cols-3 gap-3 mb-4 text-center">
+          <div class="bg-blue-50 rounded-xl p-3">
+            <div class="text-2xl mb-1">🍽️</div>
+            <p class="text-xs font-semibold text-blue-700">Trays</p>
+          </div>
+          <div class="bg-purple-50 rounded-xl p-3">
+            <div class="text-2xl mb-1">🏷️</div>
+            <p class="text-xs font-semibold text-purple-700">Labels</p>
+          </div>
+          <div class="bg-green-50 rounded-xl p-3">
+            <div class="text-2xl mb-1">📋</div>
+            <p class="text-xs font-semibold text-green-700">Menus</p>
+          </div>
+        </div>
+
+        <template x-if="allergyProfiles.length === 0">
+          <div class="bg-amber-50 rounded-xl p-3 mb-4 text-left">
+            <p class="text-amber-800 text-xs font-semibold">💡 Tip: Set up an allergy profile first for personalized results!</p>
+            <button @click="currentTab='profile'" class="mt-2 text-xs font-bold text-amber-700 underline touch-target">Set up profile →</button>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <!-- Scan Button Area -->
+    <div class="mt-4 flex flex-col items-center gap-3">
+      <input type="file" id="cameraInput" accept="image/*" capture="environment" @change="handleImageCapture($event)">
+      <input type="file" id="galleryInput" accept="image/*,.pdf" @change="handleImageCapture($event)">
+      
+      <button @click="$refs.cameraBtn.click()" 
+              :disabled="isScanning"
+              class="scan-pulse w-20 h-20 bg-blue-500 hover:bg-blue-600 active:bg-blue-700 rounded-full flex items-center justify-center text-white text-3xl shadow-xl transition-all touch-target disabled:opacity-50">
+        <span x-show="!isScanning">📷</span>
+        <div x-show="isScanning" class="spinner border-white border-t-transparent"></div>
+      </button>
+      <input type="file" id="cameraBtn" x-ref="cameraBtn" accept="image/*" capture="environment" @change="handleImageCapture($event)" style="display:none">
+      
+      <p class="text-xs text-gray-400 font-semibold">Tap to scan</p>
+      
+      <div class="flex gap-3">
+        <button @click="document.getElementById('galleryInput').click()" 
+                :disabled="isScanning"
+                class="touch-target px-4 py-2 bg-white rounded-xl card-shadow text-sm font-semibold text-gray-600 hover:bg-gray-50 active:bg-gray-100 disabled:opacity-50">
+          🖼️ Gallery
+        </button>
+        <button @click="showTextInput = !showTextInput" 
+                :disabled="isScanning"
+                class="touch-target px-4 py-2 bg-white rounded-xl card-shadow text-sm font-semibold text-gray-600 hover:bg-gray-50 active:bg-gray-100 disabled:opacity-50">
+          ✏️ Type Menu
+        </button>
+      </div>
+    </div>
+
+    <!-- Text Input -->
+    <div x-show="showTextInput" x-cloak class="mt-4 fade-in">
+      <div class="bg-white rounded-2xl card-shadow p-4">
+        <label class="text-sm font-bold text-gray-700 mb-2 block">Describe the meal or paste menu items:</label>
+        <textarea x-model="textMenuInput" rows="3" 
+                  placeholder="e.g., Grilled cheese sandwich, tomato soup, apple slices, milk..."
+                  class="w-full border border-gray-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-blue-300 focus:border-blue-400 outline-none resize-none"></textarea>
+        <button @click="analyzeTextMenu()" 
+                :disabled="isScanning || !textMenuInput.trim()"
+                class="mt-2 w-full touch-target bg-blue-500 hover:bg-blue-600 active:bg-blue-700 text-white font-bold rounded-xl py-3 text-sm disabled:opacity-50 transition-all">
+          🔍 Analyze Menu
+        </button>
+      </div>
+    </div>
+
+    <!-- Scanning Progress -->
+    <div x-show="isScanning" x-cloak class="mt-6 fade-in">
+      <div class="bg-white rounded-2xl card-shadow p-6 text-center">
+        <div class="spinner mx-auto mb-3"></div>
+        <p class="text-sm font-bold text-gray-700" x-text="scanningStatus">Analyzing your food...</p>
+        <p class="text-xs text-gray-400 mt-1">This may take a moment</p>
+      </div>
+    </div>
+
+    <!-- Scan Results -->
+    <div x-show="scanResults.length > 0 && !isScanning" x-cloak class="mt-4 space-y-3 fade-in">
+      <div class="flex items-center justify-between">
+        <h3 class="font-extrabold text-gray-800">🔎 Scan Results</h3>
+        <button @click="clearResults()" class="text-xs font-semibold text-gray-400 touch-target">Clear</button>
+      </div>
+
+      <!-- Overall Risk Summary -->
+      <div x-show="overallRisk" class="rounded-2xl p-4" 
+           :class="{'risk-high': overallRisk === 'high', 'risk-medium': overallRisk === 'medium', 'risk-low': overallRisk === 'low', 'safe': overallRisk === 'safe'}">
+        <div class="flex items-center gap-3">
+          <span class="text-3xl" x-text="overallRisk === 'high' ? '🚨' : overallRisk === 'medium' ? '⚠️' : overallRisk === 'low' ? '✅' : '💚'"></span>
+          <div>
+            <p class="font-extrabold text-sm" x-text="overallRisk === 'high' ? 'ALLERGEN DETECTED!' : overallRisk === 'medium' ? 'Possible Risk' : overallRisk === 'low' ? 'Low Risk' : 'Looks Safe!'"></p>
+            <p class="text-xs mt-0.5 opacity-80" x-text="overallRiskMsg"></p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Scanned Image Preview -->
+      <div x-show="scannedImageUrl" class="rounded-2xl overflow-hidden card-shadow">
+        <img :src="scannedImageUrl" class="w-full h-40 object-cover">
+      </div>
+
+      <!-- Food Items -->
+      <template x-for="(item, idx) in scanResults" :key="idx">
+        <div class="bg-white rounded-2xl card-shadow p-4 fade-in">
+          <div class="flex items-start justify-between mb-2">
+            <div class="flex items-center gap-2">
+              <span class="text-xl" x-text="item.emoji || '🍽️'"></span>
+              <h4 class="font-bold text-gray-800 text-sm" x-text="item.name"></h4>
+            </div>
+            <span class="text-xs font-bold px-2 py-1 rounded-full"
+                  :class="{'bg-red-100 text-red-700': item.risk === 'high', 'bg-yellow-100 text-yellow-700': item.risk === 'medium', 'bg-green-100 text-green-700': item.risk === 'low' || item.risk === 'safe'}"
+                  x-text="item.risk === 'high' ? '⛔ High' : item.risk === 'medium' ? '⚠️ Medium' : '✅ Safe'">
+            </span>
+          </div>
+
+          <!-- Allergens -->
+          <div x-show="item.allergens && item.allergens.length > 0" class="mb-2">
+            <p class="text-xs font-semibold text-gray-500 mb-1">Allergens detected:</p>
+            <div class="flex flex-wrap gap-1">
+              <template x-for="a in item.allergens" :key="a">
+                <span class="allergen-badge inline-flex items-center px-2 py-1 rounded-full text-xs font-bold bg-red-100 text-red-700" x-text="a"></span>
+              </template>
+            </div>
+          </div>
+
+          <!-- Cross-contamination -->
+          <div x-show="item.crossContamination && item.crossContamination.length > 0" class="mb-2">
+            <p class="text-xs font-semibold text-gray-500 mb-1">⚠️ Cross-contamination risk:</p>
+            <div class="flex flex-wrap gap-1">
+              <template x-for="c in item.crossContamination" :key="c">
+                <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-700" x-text="c"></span>
+              </template>
+            </div>
+          </div>
+
+          <!-- Nutrition -->
+          <div x-show="item.nutrition" class="mb-2">
+            <p class="text-xs font-semibold text-gray-500 mb-1">📊 Estimated Nutrition:</p>
+            <div class="grid grid-cols-4 gap-2 text-center">
+              <div class="bg-gray-50 rounded-lg p-1.5">
+                <p class="text-xs font-extrabold text-gray-700" x-text="item.nutrition?.calories || '—'"></p>
+                <p class="text-[10px] text-gray-400">cal</p>
+              </div>
+              <div class="bg-gray-50 rounded-lg p-1.5">
+                <p class="text-xs font-extrabold text-gray-700" x-text="item.nutrition?.protein || '—'"></p>
+                <p class="text-[10px] text-gray-400">protein</p>
+              </div>
+              <div class="bg-gray-50 rounded-lg p-1.5">
+                <p class="text-xs font-extrabold text-gray-700" x-text="item.nutrition?.carbs || '—'"></p>
+                <p class="text-[10px] text-gray-400">carbs</p>
+              </div>
+              <div class="bg-gray-50 rounded-lg p-1.5">
+                <p class="text-xs font-extrabold text-gray-700" x-text="item.nutrition?.fat || '—'"></p>
+                <p class="text-[10px] text-gray-400">fat</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Safe Swap -->
+          <div x-show="item.safeSwap" class="bg-blue-50 rounded-xl p-2.5 mt-2">
+            <p class="text-xs font-semibold text-blue-700">💡 Safe swap: <span x-text="item.safeSwap"></span></p>
+          </div>
+
+          <!-- Confidence -->
+          <div class="mt-2 flex items-center gap-2">
+            <div class="flex-1 bg-gray-100 rounded-full h-1.5">
+              <div class="h-1.5 rounded-full bg-blue-400" :style="`width: ${item.confidence || 70}%`"></div>
+            </div>
+            <span class="text-[10px] font-semibold text-gray-400" x-text="`${item.confidence || 70}% confidence`"></span>
+          </div>
+        </div>
+      </template>
+
+      <!-- Nutrition Summary -->
+      <div x-show="nutritionSummary" class="bg-white rounded-2xl card-shadow p-4">
+        <h4 class="font-bold text-gray-800 text-sm mb-2">📋 Meal Summary</h4>
+        <div class="grid grid-cols-2 gap-2">
+          <div class="bg-blue-50 rounded-xl p-3 text-center">
+            <p class="text-lg font-extrabold text-blue-700" x-text="nutritionSummary?.totalCalories || '—'"></p>
+            <p class="text-xs text-blue-500 font-semibold">Total Calories</p>
+          </div>
+          <div class="bg-green-50 rounded-xl p-3 text-center">
+            <p class="text-lg font-extrabold text-green-700" x-text="nutritionSummary?.totalProtein || '—'"></p>
+            <p class="text-xs text-green-500 font-semibold">Total Protein</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <div class="flex gap-3">
+        <button @click="generateAllergenCard()" class="flex-1 touch-target bg-purple-500 hover:bg-purple-600 active:bg-purple-700 text-white font-bold rounded-xl py-3 text-sm transition-all">
+          🪪 Allergen Card
+        </button>
+        <button @click="logExposure()" class="flex-1 touch-target bg-gray-200 hover:bg-gray-300 active:bg-gray-400 text-gray-700 font-bold rounded-xl py-3 text-sm transition-all">
+          📝 Log Meal
+        </button>
+      </div>
+    </div>
+
+    <!-- Allergen Card Modal -->
+    <div x-show="showAllergenCard" x-cloak class="fixed inset-0 bg-black/50 z-50 flex items-end justify-center" @click.self="showAllergenCard = false">
+      <div class="bg-white rounded-t-3xl w-full max-w-lg p-6 pb-10 fade-in max-h-[80vh] overflow-y-auto">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="font-extrabold text-lg text-gray-800">🪪 Allergen Card</h3>
+          <button @click="showAllergenCard = false" class="touch-target w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 text-lg">✕</button>
+        </div>
+        <div class="bg-red-50 border-2 border-red-200 rounded-2xl p-4 mb-4" id="allergenCardContent">
+          <div class="text-center mb-3">
+            <p class="font-extrabold text-red-700 text-lg">⚠️ ALLERGY ALERT ⚠️</p>
+            <p class="text-xs text-red-500 font-semibold" x-text="activeProfile?.name ? `For: ${activeProfile.name}` : 'Student Allergen Card'"></p>
+          </div>
+          <div class="space-y-2">
+            <template x-for="allergen in (activeProfile?.allergies || [])" :key="allergen">
+              <div class="bg-white rounded-xl p-3 flex items-center gap-3">
+                <span class="text-2xl">🚫</span>
+                <div>
+                  <p class="font-bold text-red-700 text-sm" x-text="allergen"></p>
+                  <p class="text-xs text-gray-500">Must avoid - may cause severe reaction</p>
+                </div>
+              </div>
+            </template>
+          </div>
+          <div class="mt-3 text-center">
+            <p class="text-[10px] text-gray-400">Generated by Lunch Allergy Scanner • <span x-text="new Date().toLocaleDateString()"></span></p>
+          </div>
+        </div>
+        <button @click="copyAllergenCard()" class="w-full touch-target bg-blue-500 hover:bg-blue-600 text-white font-bold rounded-xl py-3 text-sm">
+          📋 Copy Card Text
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- HISTORY TAB -->
+  <div x-show="currentTab === 'history'" x-cloak class="fade-in mt-4">
+    <h3 class="font-extrabold text-gray-800 text-lg mb-3">📝 Meal Log</h3>
+    
+    <div x-show="mealLog.length === 0" class="text-center py-12">
+      <div class="text-5xl mb-3">📋</div>
+      <p class="text-gray-400 font-semibold text-sm">No meals logged yet</p>
+      <p class="text-gray-300 text-xs mt-1">Scan and log meals to track here</p>
+    </div>
+
+    <div class="space-y-3">
+      <template x-for="(meal, idx) in mealLog" :key="idx">
+        <div class="bg-white rounded-2xl card-shadow p-4 fade-in">
+          <div class="flex items-center justify-between mb-2">
+            <p class="font-bold text-sm text-gray-800" x-text="meal.date"></p>
+            <span class="text-xs font-bold px-2 py-1 rounded-full"
+                  :class="{'bg-red-100 text-red-700': meal.hadAllergen, 'bg-green-100 text-green-700': !meal.hadAllergen}"
+                  x-text="meal.hadAllergen ? '⛔ Allergens Found' : '✅ Safe'">
+            </span>
+          </div>
+          <div class="flex flex-wrap gap-1 mb-2">
+            <template x-for="item in meal.items" :key="item">
+              <span class="px-2 py-0.5 bg-gray-100 rounded-full text-xs font-semibold text-gray-600" x-text="item"></span>
+            </template>
+          </div>
+          <div x-show="meal.allergensFound && meal.allergensFound.length > 0" class="flex flex-wrap gap-1">
+            <template x-for="a in meal.allergensFound" :key="a">
+              <span class="px-2 py-0.5 bg-red-50 rounded-full text-xs font-bold text-red-600" x-text="'🚫 ' + a"></span>
+            </template>
+          </div>
+          <div class="mt-2 text-xs text-gray-400 flex justify-between">
+            <span x-text="`${meal.totalCalories || '—'} cal`"></span>
+            <button @click="mealLog.splice(idx, 1); saveMealLog()" class="text-red-300 hover:text-red-500 touch-target">Delete</button>
+          </div>
+        </div>
+      </template>
+    </div>
+  </div>
+
+  <!-- PROFILE TAB -->
+  <div x-show="currentTab === 'profile'" x-cloak class="fade-in mt-4">
+    <h3 class="font-extrabold text-gray-800 text-lg mb-3">👤 Allergy Profiles</h3>
+
+    <!-- Add Profile -->
+    <div class="bg-white rounded-2xl card-shadow p-4 mb-4">
+      <h4 class="font-bold text-sm text-gray-700 mb-3">
+        <span x-text="editingProfile ? '✏️ Edit Profile' : '➕ Add New Profile'"></span>
+      </h4>
+      <input x-model="newProfile.name" placeholder="Child's name (e.g., Emma)" 
+             class="w-full border border-gray-200 rounded-xl p-3 text-sm mb-3 focus:ring-2 focus:ring-blue-300 focus:border-blue-400 outline-none">
+      
+      <p class="text-xs font-semibold text-gray-500 mb-2">Select allergies:</p>
+      <div class="flex flex-wrap gap-2 mb-3">
+        <template x-for="allergen in commonAllergens" :key="allergen">
+          <button @click="toggleAllergen(allergen)" 
+                  class="touch-target px-3 py-2 rounded-xl text-xs font-bold transition-all"
+                  :class="newProfile.allergies.includes(allergen) ? 'bg-red-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'"
+                  x-text="allergen">
+          </button>
+        </template>
+      </div>
+      
+      <input x-model="customAllergen" placeholder="Add custom allergen..." 
+             @keydown.enter="addCustomAllergen()"
+             class="w-full border border-gray-200 rounded-xl p-3 text-sm mb-3 focus:ring-2 focus:ring-blue-300 focus:border-blue-400 outline-none">
+      
+      <div class="flex gap-2">
+        <button @click="saveProfile()" 
+                :disabled="!newProfile.name.trim() || newProfile.allergies.length === 0"
+                class="flex-1 touch-target bg-blue-500 hover:bg-blue-600 active:bg-blue-700 text-white font-bold rounded-xl py-3 text-sm disabled:opacity-50 transition-all">
+          <span x-text="editingProfile ? 'Update Profile' : 'Save Profile'"></span>
+        </button>
+        <button x-show="editingProfile" @click="cancelEdit()" 
+                class="touch-target px-4 bg-gray-200 hover:bg-gray-300 text-gray-600 font-bold rounded-xl py-3 text-sm transition-all">
+          Cancel
+        </button>
+      </div>
+    </div>
+
+    <!-- Profiles List -->
+    <div class="space-y-3">
+      <template x-for="(profile, idx) in allergyProfiles" :key="idx">
+        <div class="bg-white rounded-2xl card-shadow p-4" 
+             :class="{'ring-2 ring-blue-400': activeProfile?.name === profile.name}">
+          <div class="flex items-center justify-between mb-2">
+            <div class="flex items-center gap-2">
+              <span class="text-xl">👧</span>
+              <h4 class="font-bold text-sm text-gray-800" x-text="profile.name"></h4>
+            </div>
+            <div class="flex gap-1">
+              <button @click="setActiveProfile(idx)" 
+                      class="touch-target px-3 py-1 rounded-lg text-xs font-bold transition-all"
+                      :class="activeProfile?.name === profile.name ? 'bg-blue-500 text-white' : 'bg-blue-50 text-blue-600'">
+                <span x-text="activeProfile?.name === profile.name ? '✓ Active' : 'Set Active'"></span>
+              </button>
+              <button @click="editProfile(idx)" class="touch-target w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center text-gray-400 text-sm">✏️</button>
+              <button @click="deleteProfile(idx)" class="touch-target w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center text-gray-400 text-sm">🗑️</button>
+            </div>
+          </div>
+          <div class="flex flex-wrap gap-1">
+            <template x-for="a in profile.allergies" :key="a">
+              <span class="px-2 py-0.5 bg-red-50 rounded-full text-xs font-bold text-red-600" x-text="'🚫 ' + a"></span>
+            </template>
+          </div>
+        </div>
+      </template>
+    </div>
+
+    <div x-show="allergyProfiles.length === 0" class="text-center py-8">
+      <div class="text-5xl mb-3">👤</div>
+      <p class="text-gray-400 font-semibold text-sm">No profiles yet</p>
+      <p class="text-gray-300 text-xs mt-1">Add your child's allergy profile above</p>
+    </div>
+  </div>
+
+</main>
+
+<!-- Error Toast -->
+<div x-show="errorMsg" x-cloak 
+     class="fixed top-20 left-4 right-4 max-w-lg mx-auto bg-red-50 border border-red-200 rounded-2xl p-4 z-50 fade-in shadow-lg">
+  <div class="flex items-start gap-2">
+    <span class="text-xl">😟</span>
+    <div class="flex-1">
+      <p class="text-sm font-bold text-red-700" x-text="errorMsg"></p>
+      <button @click="errorMsg = ''" class="text-xs text-red-400 underline mt-1 touch-target">Dismiss</button>
+    </div>
+  </div>
+</div>
+
+<!-- Success Toast -->
+<div x-show="successMsg" x-cloak x-transition
+     class="fixed top-20 left-4 right-4 max-w-lg mx-auto bg-green-50 border border-green-200 rounded-2xl p-4 z-50 fade-in shadow-lg">
+  <div class="flex items-center gap-2">
+    <span class="text-xl">✅</span>
+    <p class="text-sm font-bold text-green-700" x-text="successMsg"></p>
+  </div>
+</div>
+
+<!-- Bottom Navigation -->
+<nav class="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 bottom-nav z-40">
+  <div class="max-w-lg mx-auto flex justify-around py-2">
+    <button @click="currentTab = 'scan'" 
+            class="touch-target flex flex-col items-center gap-0.5 px-4 py-1 rounded-xl transition-all"
+            :class="currentTab === 'scan' ? 'text-blue-600' : 'text-gray-400'">
+      <span class="text-xl">📷</span>
+      <span class="text-[10px] font-bold">Scan</span>
+    </button>
+    <button @click="currentTab = 'history'" 
+            class="touch-target flex flex-col items-center gap-0.5 px-4 py-1 rounded-xl transition-all"
+            :class="currentTab === 'history' ? 'text-blue-600' : 'text-gray-400'">
+      <span class="text-xl">📋</span>
+      <span class="text-[10px] font-bold">History</span>
+    </button>
+    <button @click="currentTab = 'profile'" 
+            class="touch-target flex flex-col items-center gap-0.5 px-4 py-1 rounded-xl transition-all relative"
+            :class="currentTab === 'profile' ? 'text-blue-600' : 'text-gray-400'">
+      <span class="text-xl">👤</span>
+      <span class="text-[10px] font-bold">Profile</span>
+      <span x-show="allergyProfiles.length === 0" class="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full"></span>
+    </button>
+  </div>
+</nav>
+
+<script>
+// Global AI tracking
+window.aiTotalInputTokens = 0;
+window.aiTotalOutputTokens = 0;
+window.aiTotalTime = 0;
+window.aiAliasTimes = {};
+
+async function callAI(alias, params, retries = 3) {
+  const start = Date.now();
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      const resp = await fetch('https://16504442930.work/run_prompt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ alias, params })
+      });
+      if (!resp.ok) {
+        const errText = await resp.text();
+        if (attempt === retries - 1) {
+          // Format error with AI
+          try {
+            const errResp = await fetch('https://16504442930.work/run_prompt', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                alias: 'genericAI',
+                params: {
+                  prompt: `Reformat this API error into a friendly, empowering message for a non-technical user. Include what they can try to fix it. Also include the full original error. Original error: ${errText}. Return JSON with exactly this structure: {"friendlyMessage": string (the user-friendly message), "originalError": string (the full original error)}`
+                }
+              })
+            });
+            const errData = await errResp.json();
+            throw new Error(errData.friendlyMessage || errText);
+          } catch(e2) {
+            throw new Error(`Something went wrong. Please try again. (${errText})`);
+          }
+        }
+        await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+        continue;
+      }
+      const data = await resp.json();
+      const elapsed = Date.now() - start;
+      window.aiTotalTime += elapsed;
+      window.aiAliasTimes[alias] = (window.aiAliasTimes[alias] || 0) + elapsed;
+      if (data.usage) {
+        window.aiTotalInputTokens += data.usage.input_tokens || 0;
+        window.aiTotalOutputTokens += data.usage.output_tokens || 0;
+      }
+      return data;
+    } catch (e) {
+      if (attempt === retries - 1) throw e;
+      await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+    }
+  }
+}
+
+function app() {
+  return {
+    currentTab: 'scan',
+    showDisclaimer: true,
+    isScanning: false,
+    scanningStatus: 'Analyzing your food...',
+    showTextInput: false,
+    textMenuInput: '',
+    scanResults: [],
+    overallRisk: '',
+    overallRiskMsg: '',
+    scannedImageUrl: '',
+    nutritionSummary: null,
+    showAllergenCard: false,
+    errorMsg: '',
+    successMsg: '',
+    hasScanned: false,
+
+    // Profiles
+    allergyProfiles: [],
+    activeProfile: null,
+    newProfile: { name: '', allergies: [] },
+    customAllergen: '',
+    editingProfile: null,
+    commonAllergens: ['🥜 Peanuts', '🌰 Tree Nuts', '🥛 Milk', '🥚 Eggs', '🌾 Wheat', '🐟 Fish', '🦐 Shellfish', '🫘 Soy', '🫒 Sesame'],
+
+    // Meal log
+    mealLog: [],
+
+    init() {
+      const profiles = localStorage.getItem('allergyProfiles');
+      if (profiles) this.allergyProfiles = JSON.parse(profiles);
+      const active = localStorage.getItem('activeProfile');
+      if (active) this.activeProfile = JSON.parse(active);
+      const log = localStorage.getItem('mealLog');
+      if (log) this.mealLog = JSON.parse(log);
+    },
+
+    toggleAllergen(a) {
+      const idx = this.newProfile.allergies.indexOf(a);
+      if (idx >= 0) this.newProfile.allergies.splice(idx, 1);
+      else this.newProfile.allergies.push(a);
+    },
+
+    addCustomAllergen() {
+      if (this.customAllergen.trim()) {
+        this.newProfile.allergies.push(this.customAllergen.trim());
+        this.customAllergen = '';
+      }
+    },
+
+    saveProfile() {
+      if (!this.newProfile.name.trim() || this.newProfile.allergies.length === 0) return;
+      if (this.editingProfile !== null) {
+        this.allergyProfiles[this.editingProfile] = { ...this.newProfile };
+        if (this.activeProfile?.name === this.newProfile.name) {
+          this.activeProfile = { ...this.newProfile };
+          localStorage.setItem('activeProfile', JSON.stringify(this.activeProfile));
+        }
+        this.editingProfile = null;
+      } else {
+        this.allergyProfiles.push({ ...this.newProfile });
+        if (!this.activeProfile) {
+          this.activeProfile = { ...this.newProfile };
+          localStorage.setItem('activeProfile', JSON.stringify(this.activeProfile));
+        }
+      }
+      localStorage.setItem('allergyProfiles', JSON.stringify(this.allergyProfiles));
+      this.newProfile = { name: '', allergies: [] };
+      this.showSuccess('Profile saved! 🎉');
+    },
+
+    editProfile(idx) {
+      this.editingProfile = idx;
+      this.newProfile = { name: this.allergyProfiles[idx].name, allergies: [...this.allergyProfiles[idx].allergies] };
+    },
+
+    cancelEdit() {
+      this.editingProfile = null;
+      this.newProfile = { name: '', allergies: [] };
+    },
+
+    deleteProfile(idx) {
+      const name = this.allergyProfiles[idx].name;
+      this.allergyProfiles.splice(idx, 1);
+      if (this.activeProfile?.name === name) {
+        this.activeProfile = this.allergyProfiles.length > 0 ? { ...this.allergyProfiles[0] } : null;
+        localStorage.setItem('activeProfile', JSON.stringify(this.activeProfile));
+      }
+      localStorage.setItem('allergyProfiles', JSON.stringify(this.allergyProfiles));
+    },
+
+    setActiveProfile(idx) {
+      this.activeProfile = { ...this.allergyProfiles[idx] };
+      localStorage.setItem('activeProfile', JSON.stringify(this.activeProfile));
+      this.showSuccess(`${this.activeProfile.name} is now the active profile`);
+    },
+
+    showSuccess(msg) {
+      this.successMsg = msg;
+      setTimeout(() => this.successMsg = '', 3000);
+    },
+
+    async handleImageCapture(event) {
+      const file = event.target.files?.[0];
+      if (!file) return;
+      event.target.value = '';
+
+      this.isScanning = true;
+      this.scanningStatus = 'Reading your image...';
+      this.scanResults = [];
+      this.overallRisk = '';
+      this.overallRiskMsg = '';
+      this.nutritionSummary = null;
+
+      try {
+        // Convert to base64
+        const base64 = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+
+        this.scannedImageUrl = base64;
+
+        // Upload image
+        this.scanningStatus = 'Uploading image...';
+        const imageKey = `scan_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        const base64Data = base64.split(',')[1];
+
+        await fetch('https://16504442930.work/write', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: imageKey, value: base64Data })
+        });
+
+        const imageUrl = `https://16504442930.work/serve_image?key=${imageKey}`;
+
+        // Analyze with AI
+        this.scanningStatus = 'AI is analyzing your food...';
+
+        const allergyContext = this.activeProfile 
+          ? `The child has these allergies: ${this.activeProfile.allergies.join(', ')}. Pay special attention to these allergens and any ingredients that may contain or be cross-contaminated with them.`
+          : 'No specific allergy profile is set. Check for all common allergens (peanuts, tree nuts, milk, eggs, wheat, fish, shellfish, soy, sesame).';
+
+        const result = await callAI('imageMod', {
+          prompt: `You are an expert food allergen and nutrition analyst for school cafeterias. Analyze this food image carefully.
+
+${allergyContext}
+
+Identify each food item visible. For each item determine:
+1. What the food item is
+2. Likely allergens it contains or may contain
+3. Cross-contamination risks (e.g. prepared in shared kitchen with nuts)
+4. Estimated nutrition per serving (calories, protein in grams, carbs in grams, fat in grams)
+5. A safe swap suggestion if allergens are detected
+6. Confidence level (0-100)
+7. Risk level: "high" if contains a listed allergen, "medium" if cross-contamination possible, "low" if unlikely but possible, "safe" if no allergen concern
+
+Return ONLY valid JSON (no markdown, no code fences) with this exact structure:
+{
+  "items": [
+    {
+      "name": string,
+      "emoji": string (single food emoji),
+      "allergens": string[] (list of allergen names),
+      "crossContamination": string[] (possible cross-contamination allergens),
+      "nutrition": {"calories": string (e.g. "250"), "protein": string (e.g. "12g"), "carbs": string (e.g. "30g"), "fat": string (e.g. "8g")},
+      "safeSwap": string or null,
+      "confidence": number (0-100),
+      "risk": string ("high" | "medium" | "low" | "safe")
+    }
+  ],
+  "overallRisk": string ("high" | "medium" | "low" | "safe"),
+  "overallRiskMessage": string (brief explanation),
+  "totalCalories": string,
+  "totalProtein": string
+}`,
+          image: imageUrl
+        });
+
+        this.processResults(result);
+
+      } catch (e) {
+        // Fallback: use text-based analysis if image analysis fails
+        this.scanningStatus = 'Trying text-based analysis...';
+        try {
+          await this.analyzeWithTextFallback('Food items from a photographed school lunch tray');
+        } catch(e2) {
+          this.errorMsg = e.message || 'Could not analyze the image. Please try again or type the menu items manually.';
+          this.isScanning = false;
+        }
+      }
+    },
+
+    async analyzeTextMenu() {
+      if (!this.textMenuInput.trim()) return;
+      this.isScanning = true;
+      this.scanningStatus = 'Analyzing menu items...';
+      this.scanResults = [];
+      this.overallRisk = '';
+      this.overallRiskMsg = '';
+      this.nutritionSummary = null;
+      this.scannedImageUrl = '';
+
+      try {
+        await this.analyzeWithTextFallback(this.textMenuInput);
+      } catch(e) {
+        this.errorMsg = e.message || 'Could not analyze menu. Please try again.';
+        this.isScanning = false;
+      }
+    },
+
+    async analyzeWithTextFallback(menuText) {
+      const allergyContext = this.activeProfile 
+        ? `The child has these specific allergies: ${this.activeProfile.allergies.join(', ')}. Flag any food that contains these or may be cross-contaminated with them.`
+        : 'No specific allergy profile is set. Check for all common allergens: peanuts, tree nuts, milk, eggs, wheat, fish, shellfish, soy, sesame.';
+
+      const result = await callAI('genericAI', {
+        prompt: `You are an expert food allergen and nutrition analyst for school cafeterias. A user described these lunch items: "${menuText}"
+
+${allergyContext}
+
+For each food item you can identify, determine:
+1. What the food item likely is
+2. Allergens it typically contains or may contain
+3. Cross-contamination risks common in school cafeteria preparation
+4. Estimated nutrition per typical school serving (calories, protein, carbs, fat)
+5. A safe swap suggestion if allergens are detected for the child
+6. Your confidence level (0-100)
+7. Risk level: "high" if contains a listed allergen, "medium" if cross-contamination risk, "low" if unlikely, "safe" if no concern
+
+You MUST return ONLY valid JSON with this exact structure (no markdown, no code fences, no explanation):
+{
+  "items": [
+    {
+      "name": "string - name of food item",
+      "emoji": "string - single food emoji like 🍕",
+      "allergens": ["string array of allergen names found"],
+      "crossContamination": ["string array of possible cross-contamination allergens"],
+      "nutrition": {"calories": "string like 250", "protein": "string like 12g", "carbs": "string like 30g", "fat": "string like 8g"},
+      "safeSwap": "string suggestion or null if safe",
+      "confidence": 75,
+      "risk": "high or medium or low or safe"
+    }
+  ],
+  "overallRisk": "high or medium or low or safe",
+  "overallRiskMessage": "string brief explanation",
+  "totalCalories": "string like 650",
+  "totalProtein": "string like 28g"
+}`
+      });
+
+      this.processResults(result);
+    },
+
+    processResults(result) {
+      try {
+        let data = result;
+        
+        // Try to extract JSON if it's nested or wrapped
+        if (typeof data === 'string') {
+          // Remove markdown code fences if present
+          data = data.replace(/
